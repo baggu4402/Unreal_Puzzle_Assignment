@@ -19,3 +19,6 @@ Saved/
 # OS files
 .DS_Store
 Thumbs.db
+
+# External asset packs
+Content/Mega_Survival_Tools/
