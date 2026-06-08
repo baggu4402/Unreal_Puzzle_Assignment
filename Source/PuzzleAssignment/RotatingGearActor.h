@@ -17,6 +17,7 @@ protected:
 
 public:
 	virtual void Tick(float DeltaTime) override;
+	void SetRotationSpeed(const FRotator& NewRotationSpeed);
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")

@@ -21,3 +21,8 @@ void ARotatingGearActor::Tick(float DeltaTime)
 
 	AddActorLocalRotation(RotationSpeed * DeltaTime);
 }
+
+void ARotatingGearActor::SetRotationSpeed(const FRotator& NewRotationSpeed)
+{
+	RotationSpeed = NewRotationSpeed;
+}
