@@ -30,8 +30,21 @@ public:
 
 private:
 	void Move(const FInputActionValue& Value);
+	void StopMove(const FInputActionValue& Value);
+
 	void Look(const FInputActionValue& Value);
+
+	void UpDown(const FInputActionValue& Value);
+	void StopUpDown(const FInputActionValue& Value);
+
+	void Roll(const FInputActionValue& Value);
+	void StopRoll(const FInputActionValue& Value);
+
 	void AddDefaultMappingContext();
+
+	void ProcessMovement(float DeltaTime);
+	void ApplyGravity(float DeltaTime);
+	void CheckGround();
 
 private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
@@ -55,8 +68,17 @@ private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	UInputAction* UpDownAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	UInputAction* RollAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (AllowPrivateAccess = "true"))
 	float MoveSpeed;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (AllowPrivateAccess = "true"))
+	float AirControlRatio;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Look", meta = (AllowPrivateAccess = "true"))
 	float YawSpeed;
@@ -65,8 +87,21 @@ private:
 	float PitchSpeed;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Look", meta = (AllowPrivateAccess = "true"))
-	float MinPitch;
+	float RollSpeed;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Look", meta = (AllowPrivateAccess = "true"))
-	float MaxPitch;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity", meta = (AllowPrivateAccess = "true"))
+	bool bUseGravity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity", meta = (AllowPrivateAccess = "true"))
+	float GravityAcceleration;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity", meta = (AllowPrivateAccess = "true"))
+	float GroundCheckDistance;
+
+	FVector2D MoveInput;
+	float UpDownInput;
+	float RollInput;
+
+	float VerticalVelocity;
+	bool bIsGrounded;
 };

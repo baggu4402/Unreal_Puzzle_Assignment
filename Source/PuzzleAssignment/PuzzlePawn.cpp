@@ -39,11 +39,22 @@ APuzzlePawn::APuzzlePawn()
 	CameraComponent->bUsePawnControlRotation = false;
 
 	MoveSpeed = 600.0f;
+	AirControlRatio = 0.4f;
 
 	YawSpeed = 120.0f;
 	PitchSpeed = 80.0f;
-	MinPitch = -60.0f;
-	MaxPitch = 30.0f;
+	RollSpeed = 100.0f;
+
+	bUseGravity = true;
+	GravityAcceleration = -980.0f;
+	GroundCheckDistance = 20.0f;
+
+	MoveInput = FVector2D::ZeroVector;
+	UpDownInput = 0.0f;
+	RollInput = 0.0f;
+
+	VerticalVelocity = 0.0f;
+	bIsGrounded = false;
 
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 }
@@ -53,6 +64,7 @@ void APuzzlePawn::BeginPlay()
 	Super::BeginPlay();
 
 	AddDefaultMappingContext();
+	CheckGround();
 }
 
 void APuzzlePawn::PossessedBy(AController* NewController)
@@ -65,6 +77,11 @@ void APuzzlePawn::PossessedBy(AController* NewController)
 void APuzzlePawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	CheckGround();
+	ProcessMovement(DeltaTime);
+	ApplyGravity(DeltaTime);
+	CheckGround();
 }
 
 void APuzzlePawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -80,50 +97,44 @@ void APuzzlePawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponen
 
 	if (MoveAction != nullptr)
 	{
-		EnhancedInputComponent->BindAction(
-			MoveAction,
-			ETriggerEvent::Triggered,
-			this,
-			&APuzzlePawn::Move
-		);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &APuzzlePawn::Move);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &APuzzlePawn::StopMove);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Canceled, this, &APuzzlePawn::StopMove);
 	}
 
 	if (LookAction != nullptr)
 	{
-		EnhancedInputComponent->BindAction(
-			LookAction,
-			ETriggerEvent::Triggered,
-			this,
-			&APuzzlePawn::Look
-		);
+		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &APuzzlePawn::Look);
+	}
+
+	if (UpDownAction != nullptr)
+	{
+		EnhancedInputComponent->BindAction(UpDownAction, ETriggerEvent::Triggered, this, &APuzzlePawn::UpDown);
+		EnhancedInputComponent->BindAction(UpDownAction, ETriggerEvent::Completed, this, &APuzzlePawn::StopUpDown);
+		EnhancedInputComponent->BindAction(UpDownAction, ETriggerEvent::Canceled, this, &APuzzlePawn::StopUpDown);
+	}
+
+	if (RollAction != nullptr)
+	{
+		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Triggered, this, &APuzzlePawn::Roll);
+		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Completed, this, &APuzzlePawn::StopRoll);
+		EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Canceled, this, &APuzzlePawn::StopRoll);
 	}
 }
 
 void APuzzlePawn::Move(const FInputActionValue& Value)
 {
-	const FVector2D MoveValue = Value.Get<FVector2D>();
+	MoveInput = Value.Get<FVector2D>();
+}
 
-	const UWorld* World = GetWorld();
-
-	if (World == nullptr)
-	{
-		return;
-	}
-
-	const float DeltaTime = World->GetDeltaSeconds();
-
-	const FVector LocalOffset = FVector(
-		MoveValue.Y * MoveSpeed * DeltaTime,
-		MoveValue.X * MoveSpeed * DeltaTime,
-		0.0f
-	);
-
-	AddActorLocalOffset(LocalOffset, true);
+void APuzzlePawn::StopMove(const FInputActionValue& Value)
+{
+	MoveInput = FVector2D::ZeroVector;
 }
 
 void APuzzlePawn::Look(const FInputActionValue& Value)
 {
-	const FVector2D LookValue = Value.Get<FVector2D>();
+	const FVector2D LookInput = Value.Get<FVector2D>();
 
 	const UWorld* World = GetWorld();
 
@@ -134,19 +145,123 @@ void APuzzlePawn::Look(const FInputActionValue& Value)
 
 	const float DeltaTime = World->GetDeltaSeconds();
 
-	const float YawAmount = LookValue.X * YawSpeed * DeltaTime;
+	const float YawAmount = LookInput.X * YawSpeed * DeltaTime;
+	
+	const float PitchAmount = LookInput.Y * PitchSpeed * DeltaTime;
 
-	AddActorLocalRotation(FRotator(0.0f, YawAmount, 0.0f));
+	AddActorLocalRotation(FRotator(PitchAmount, YawAmount, 0.0f));
+}
 
-	const FRotator CurrentSpringArmRotation = SpringArmComponent->GetRelativeRotation();
+void APuzzlePawn::UpDown(const FInputActionValue& Value)
+{
+	UpDownInput = Value.Get<float>();
+}
 
-	const float NewPitch = FMath::Clamp(
-		CurrentSpringArmRotation.Pitch - LookValue.Y * PitchSpeed * DeltaTime,
-		MinPitch,
-		MaxPitch
+void APuzzlePawn::StopUpDown(const FInputActionValue& Value)
+{
+	UpDownInput = 0.0f;
+}
+
+void APuzzlePawn::Roll(const FInputActionValue& Value)
+{
+	RollInput = Value.Get<float>();
+}
+
+void APuzzlePawn::StopRoll(const FInputActionValue& Value)
+{
+	RollInput = 0.0f;
+}
+
+void APuzzlePawn::ProcessMovement(float DeltaTime)
+{
+	const float CurrentMoveSpeed = bIsGrounded ? MoveSpeed : MoveSpeed * AirControlRatio;
+
+	const FVector ForwardDirection = GetActorForwardVector();
+	const FVector RightDirection = GetActorRightVector();
+	const FVector UpDirection = GetActorUpVector();
+
+	FVector MoveDirection =
+		ForwardDirection * MoveInput.Y +
+		RightDirection * MoveInput.X +
+		UpDirection * UpDownInput;
+
+	if (!MoveDirection.IsNearlyZero())
+	{
+		MoveDirection = MoveDirection.GetSafeNormal();
+
+		const FVector MoveOffset = MoveDirection * CurrentMoveSpeed * DeltaTime;
+
+		AddActorWorldOffset(MoveOffset, true);
+	}
+
+	if (!FMath::IsNearlyZero(RollInput))
+	{
+		const float RollAmount = RollInput * RollSpeed * DeltaTime;
+
+		AddActorLocalRotation(FRotator(0.0f, 0.0f, RollAmount));
+	}
+}
+
+void APuzzlePawn::ApplyGravity(float DeltaTime)
+{
+	if (!bUseGravity)
+	{
+		return;
+	}
+
+	if (!bIsGrounded)
+	{
+		VerticalVelocity += GravityAcceleration * DeltaTime;
+	}
+	else if (VerticalVelocity < 0.0f)
+	{
+		VerticalVelocity = 0.0f;
+	}
+
+	const FVector GravityOffset = FVector(0.0f, 0.0f, VerticalVelocity * DeltaTime);
+
+	AddActorWorldOffset(GravityOffset, true);
+}
+
+void APuzzlePawn::CheckGround()
+{
+	if (GetWorld() == nullptr || CapsuleComponent == nullptr)
+	{
+		return;
+	}
+
+	const bool bWasGrounded = bIsGrounded;
+
+	const FVector Start = GetActorLocation();
+	const float CapsuleHalfHeight = CapsuleComponent->GetScaledCapsuleHalfHeight();
+	const FVector End = Start - FVector(0.0f, 0.0f, CapsuleHalfHeight + GroundCheckDistance);
+
+	FHitResult HitResult;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+
+	bIsGrounded = GetWorld()->LineTraceSingleByChannel(
+		HitResult,
+		Start,
+		End,
+		ECC_Visibility,
+		QueryParams
 	);
 
-	SpringArmComponent->SetRelativeRotation(FRotator(NewPitch, 0.0f, 0.0f));
+	if (bIsGrounded)
+	{
+		if (!bWasGrounded && VerticalVelocity < 0.0f)
+		{
+			VerticalVelocity = 0.0f;
+		}
+
+		if (VerticalVelocity <= 0.0f)
+		{
+			FVector NewLocation = GetActorLocation();
+			NewLocation.Z = HitResult.ImpactPoint.Z + CapsuleHalfHeight;
+			SetActorLocation(NewLocation);
+		}
+	}
 }
 
 void APuzzlePawn::AddDefaultMappingContext()
