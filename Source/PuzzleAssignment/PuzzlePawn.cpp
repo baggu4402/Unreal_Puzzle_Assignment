@@ -229,6 +229,13 @@ void APuzzlePawn::CheckGround()
 	{
 		return;
 	}
+	
+	if (UpDownInput > 0.1f)
+	{
+		bIsGrounded = false;
+		VerticalVelocity = 0.0f;
+		return;
+	}
 
 	const bool bWasGrounded = bIsGrounded;
 
